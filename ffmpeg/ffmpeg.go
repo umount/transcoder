@@ -12,9 +12,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
-	"github.com/floostack/transcoder"
-	"github.com/floostack/transcoder/utils"
+	"github.com/C0nstantin/transcoder"
+	"github.com/C0nstantin/transcoder/utils"
 )
 
 // Transcoder ...
@@ -101,16 +103,30 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	if err != nil {
 		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
 	}
+	if int(t.config.Timeout) > 0 {
 
-	if t.config.ProgressEnabled && !t.config.Verbose {
-		go func() {
-			t.progress(stderrIn, out)
-		}()
-
+	}
+	if (t.config.ProgressEnabled && !t.config.Verbose) || (int(t.config.Timeout) > 0) {
+		if t.config.ProgressEnabled {
+			go func() {
+				t.progress(stderrIn, out)
+			}()
+		}
+		done := make(chan error, 1)
 		go func() {
 			defer close(out)
-			err = cmd.Wait()
+			done <- cmd.Wait()
+
 		}()
+		select {
+		case <-time.After(t.config.Timeout):
+			cmd.Process.Signal(syscall.SIGTERM)
+		case <-done:
+			if err != nil {
+				return nil, err
+			}
+		}
+
 	} else {
 		err = cmd.Wait()
 	}
@@ -192,7 +208,7 @@ func (t *Transcoder) validate() error {
 }
 
 // GetMetadata Returns metadata for the specified input file
-func (t *Transcoder) GetMetadata() ( transcoder.Metadata, error) {
+func (t *Transcoder) GetMetadata() (transcoder.Metadata, error) {
 
 	if t.config.FfprobeBinPath != "" {
 		var outb, errb bytes.Buffer
