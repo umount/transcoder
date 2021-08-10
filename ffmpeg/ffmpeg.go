@@ -103,9 +103,7 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	if err != nil {
 		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
 	}
-	if int(t.config.Timeout) > 0 {
 
-	}
 	if (t.config.ProgressEnabled && !t.config.Verbose) || (int(t.config.Timeout) > 0) {
 		if t.config.ProgressEnabled {
 			go func() {
@@ -129,6 +127,9 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 
 	} else {
 		err = cmd.Wait()
+		if err != nil {
+			return nil, fmt.Errorf("Error ffmeg execute command %s, %w", cmd.String(), err)
+		}
 	}
 
 	return out, nil
