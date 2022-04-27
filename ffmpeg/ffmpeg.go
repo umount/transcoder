@@ -118,8 +118,12 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 		}()
 		select {
 		case <-time.After(t.config.Timeout):
-			cmd.Process.Signal(syscall.SIGTERM)
-		case <-done:
+			err = cmd.Process.Signal(syscall.SIGTERM)
+			if err != nil {
+				return nil, err
+			}
+			cmd.Wait()
+		case err := <-done:
 			if err != nil {
 				return nil, err
 			}
