@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/C0nstantin/transcoder"
@@ -84,14 +84,7 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	}
 
 	// Initialize command
-	ctx := context.Background()
-	if int(t.config.Timeout) > 0 {
-		ctx1, cancel := context.WithDeadline(ctx, time.Now().Add(t.config.Timeout))
-		defer cancel()
-		ctx = ctx1
-	}
-	cmd := exec.CommandContext(ctx, t.config.FfmpegBinPath, args...)
-	//cmd := exec.Command(t.config.FfmpegBinPath, args...)
+	cmd := exec.Command(t.config.FfmpegBinPath, args...)
 
 	// If progresss enabled, get stderr pipe and start progress process
 	if t.config.ProgressEnabled && !t.config.Verbose {
@@ -106,24 +99,47 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	}
 
 	// Start process
-	//err = cmd.Start()
-
-	if t.config.ProgressEnabled && !t.config.Verbose {
-		go func() {
-			t.progress(stderrIn, out)
-		}()
-	}
-	err = cmd.Run()
+	err = cmd.Start()
 	if err != nil {
 		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
 	}
-	if ctx.Err() == context.DeadlineExceeded {
-		fmt.Printf("Command timed out %s ", cmd.String())
-		return out, nil
+
+	if t.config.ProgressEnabled && !t.config.Verbose {
+
+		if t.config.ProgressEnabled {
+			go func() {
+				t.progress(stderrIn, out)
+			}()
+		}
 	}
-	if err != nil {
-		return nil, err
+	if int(t.config.Timeout) > 0 {
+		done := make(chan error, 1)
+		go func() {
+			defer close(out)
+			done <- cmd.Wait()
+
+		}()
+		select {
+		case <-time.After(t.config.Timeout):
+			err = cmd.Process.Signal(syscall.SIGINT)
+			if err != nil {
+				return nil, err
+			}
+			time.Sleep(3 * time.Second)
+
+		case err := <-done:
+			if err != nil {
+				return nil, err
+			}
+		}
+
+	} else {
+		err = cmd.Wait()
+		if err != nil {
+			return nil, fmt.Errorf("Error ffmeg execute command %s, %w", cmd.String(), err)
+		}
 	}
+
 	return out, nil
 }
 
