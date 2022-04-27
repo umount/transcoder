@@ -125,7 +125,7 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 			if err != nil {
 				return nil, err
 			}
-			time.Sleep(3 * time.Second)
+			time.Sleep(30 * time.Second)
 
 		case err := <-done:
 			if err != nil {
