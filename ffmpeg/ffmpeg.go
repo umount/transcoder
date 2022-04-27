@@ -106,25 +106,20 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	}
 
 	// Start process
-	err = cmd.Start()
-	if err != nil {
-		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
-	}
+	//err = cmd.Start()
+
 	if t.config.ProgressEnabled && !t.config.Verbose {
 		go func() {
 			t.progress(stderrIn, out)
 		}()
-
-		go func() {
-			defer close(out)
-			err = cmd.Wait()
-		}()
-	} else {
-		err = cmd.Wait()
+	}
+	err = cmd.Run()
+	if err != nil {
+		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("Command timed out %s ", cmd.String())
-
+		fmt.Printf("Command timed out %s ", cmd.String())
+		return out, nil
 	}
 	if err != nil {
 		return nil, err
