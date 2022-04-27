@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/C0nstantin/transcoder"
@@ -84,7 +84,14 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	}
 
 	// Initialize command
-	cmd := exec.Command(t.config.FfmpegBinPath, args...)
+	ctx := context.Background()
+	if int(t.config.Timeout) > 0 {
+		ctx1, cancel := context.WithDeadline(ctx, time.Now().Add(t.config.Timeout))
+		defer cancel()
+		ctx = ctx1
+	}
+	cmd := exec.CommandContext(ctx, t.config.FfmpegBinPath, args...)
+	//cmd := exec.Command(t.config.FfmpegBinPath, args...)
 
 	// If progresss enabled, get stderr pipe and start progress process
 	if t.config.ProgressEnabled && !t.config.Verbose {
@@ -103,39 +110,25 @@ func (t *Transcoder) Start(opts transcoder.Options) (<-chan transcoder.Progress,
 	if err != nil {
 		return nil, fmt.Errorf("Failed starting transcoding (%s) with args (%s) with error %s", t.config.FfmpegBinPath, args, err)
 	}
+	if t.config.ProgressEnabled && !t.config.Verbose {
+		go func() {
+			t.progress(stderrIn, out)
+		}()
 
-	if (t.config.ProgressEnabled && !t.config.Verbose) || (int(t.config.Timeout) > 0) {
-		if t.config.ProgressEnabled {
-			go func() {
-				t.progress(stderrIn, out)
-			}()
-		}
-		done := make(chan error, 1)
 		go func() {
 			defer close(out)
-			done <- cmd.Wait()
-
+			err = cmd.Wait()
 		}()
-		select {
-		case <-time.After(t.config.Timeout):
-			err = cmd.Process.Signal(syscall.SIGTERM)
-			if err != nil {
-				return nil, err
-			}
-			cmd.Wait()
-		case err := <-done:
-			if err != nil {
-				return nil, err
-			}
-		}
-
 	} else {
 		err = cmd.Wait()
-		if err != nil {
-			return nil, fmt.Errorf("Error ffmeg execute command %s, %w", cmd.String(), err)
-		}
 	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("Command timed out %s ", cmd.String())
 
+	}
+	if err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
